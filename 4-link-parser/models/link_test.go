@@ -138,16 +138,16 @@ func TestGetLinks(t *testing.T) {
 				{Href: "/dog-cat", Text: "dog cat"},
 			},
 		},
-		// 		{
-		// 			name: "nested",
-		// 			content: `
-		// <a href="/outer">outer<a href="/inner">INNER</a></a>
-		// `,
-		// 			want: []Link{
-		// 				{Href: "/outer", Text: "outer"},
-		// 				{Href: "/inner", Text: "INNER"},
-		// 			},
-		// 		},
+		{
+			name: "nested",
+			content: `
+		<a href="/outer">outer<a href="/inner">INNER</a></a>
+		`,
+			want: []Link{
+				{Href: "/inner", Text: "INNER"},
+				{Href: "/outer", Text: "outer"},
+			},
+		},
 	}
 
 	for _, test := range tests {
