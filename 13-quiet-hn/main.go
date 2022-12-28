@@ -34,6 +34,8 @@ func main() {
 }
 
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
+	cache := itemsCache{items: nil}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		var client hn.Client
@@ -42,7 +44,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
-		stories := getItems(&client, ids, numStories)
+		stories := getItems(&cache, &client, ids, numStories)
 		data := templateData{
 			Stories: stories,
 			Time:    time.Now().Sub(start),
@@ -75,7 +77,13 @@ func getItem(client *hn.Client, ids []int, i int, next_i *atomic.Int32, wg *sync
 	}
 }
 
-func getItems(client *hn.Client, ids []int, numStories int) []item {
+func getItems(cache *itemsCache, client *hn.Client, ids []int, numStories int) []item {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.isValid() {
+		return cache.items
+	}
+
 	ch := make(chan item)
 	var wg sync.WaitGroup
 	next_i := atomic.Int32{}
@@ -102,6 +110,7 @@ func getItems(client *hn.Client, ids []int, numStories int) []item {
 		return a.Index < b.Index
 	})
 
+	cache.store(stories)
 	return stories
 }
 
@@ -128,4 +137,25 @@ type item struct {
 type templateData struct {
 	Stories []item
 	Time    time.Duration
+}
+
+type itemsCache struct {
+	items []item
+	time  time.Time
+	mu    sync.Mutex
+}
+
+const cacheExpiry = 5 * time.Minute
+
+func (c *itemsCache) isValid() bool {
+	if c.items == nil {
+		return false
+	}
+
+	return c.time.Add(cacheExpiry).After(time.Now())
+}
+
+func (c *itemsCache) store(items []item) {
+	c.items = items
+	c.time = time.Now()
 }
