@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/seetohjinwei/gophercises/13-quiet-hn/hn"
+	"golang.org/x/exp/slices"
 )
+
+const concurrencyMultiplier float32 = 1.25
 
 func main() {
 	// parse flags
@@ -37,20 +40,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
-		var stories []item
-		for _, id := range ids {
-			hnItem, err := client.GetItem(id)
-			if err != nil {
-				continue
-			}
-			item := parseHNItem(hnItem)
-			if isStoryLink(item) {
-				stories = append(stories, item)
-				if len(stories) >= numStories {
-					break
-				}
-			}
-		}
+		stories := getItems(&client, ids, numStories)
 		data := templateData{
 			Stories: stories,
 			Time:    time.Now().Sub(start),
@@ -63,12 +53,53 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	})
 }
 
+func getItems(client *hn.Client, ids []int, numStories int) []item {
+	ch := make(chan item)
+
+	var stories []item
+
+	numStoriesToGet := int(float32(numStories) * concurrencyMultiplier)
+
+	for i := 0; i < numStoriesToGet; i++ {
+		id := ids[i]
+
+		go func(i, id int) {
+			hnItem, err := client.GetItem(id)
+			if err != nil {
+				return
+			}
+			item := parseHNItem(hnItem, i)
+
+			if isStoryLink(item) {
+				ch <- item
+			}
+		}(i, id)
+	}
+
+	for i := 0; i < numStoriesToGet; i++ {
+		item := <-ch
+		stories = append(stories, item)
+	}
+
+	// sort the stories
+	slices.SortFunc(stories, func(a, b item) bool {
+		return a.Index < b.Index
+	})
+
+	// return only `numStories` or less
+	if len(stories) <= numStories {
+		return stories
+	}
+
+	return stories[:numStories]
+}
+
 func isStoryLink(item item) bool {
 	return item.Type == "story" && item.URL != ""
 }
 
-func parseHNItem(hnItem hn.Item) item {
-	ret := item{Item: hnItem}
+func parseHNItem(hnItem hn.Item, index int) item {
+	ret := item{Item: hnItem, Index: index}
 	url, err := url.Parse(ret.URL)
 	if err == nil {
 		ret.Host = strings.TrimPrefix(url.Hostname(), "www.")
@@ -79,7 +110,8 @@ func parseHNItem(hnItem hn.Item) item {
 // item is the same as the hn.Item, but adds the Host field
 type item struct {
 	hn.Item
-	Host string
+	Host  string
+	Index int
 }
 
 type templateData struct {
