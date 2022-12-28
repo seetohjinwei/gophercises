@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/seetohjinwei/gophercises/13-quiet-hn/hn"
@@ -55,6 +56,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 
 func getItems(client *hn.Client, ids []int, numStories int) []item {
 	ch := make(chan item)
+	var wg sync.WaitGroup
 
 	var stories []item
 
@@ -63,7 +65,10 @@ func getItems(client *hn.Client, ids []int, numStories int) []item {
 	for i := 0; i < numStoriesToGet; i++ {
 		id := ids[i]
 
+		wg.Add(1)
 		go func(i, id int) {
+			defer wg.Done()
+
 			hnItem, err := client.GetItem(id)
 			if err != nil {
 				return
@@ -76,8 +81,12 @@ func getItems(client *hn.Client, ids []int, numStories int) []item {
 		}(i, id)
 	}
 
-	for i := 0; i < numStoriesToGet; i++ {
-		item := <-ch
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	for item := range ch {
 		stories = append(stories, item)
 	}
 
