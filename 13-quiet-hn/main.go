@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/seetohjinwei/gophercises/13-quiet-hn/hn"
@@ -54,31 +55,37 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	})
 }
 
+func getItem(client *hn.Client, ids []int, i int, next_i *atomic.Int32, wg *sync.WaitGroup, ch chan<- item) {
+	defer wg.Done()
+
+	id := ids[i]
+
+	hnItem, err := client.GetItem(id)
+	if err != nil {
+		return
+	}
+	item := parseHNItem(hnItem, i)
+
+	if isStoryLink(item) {
+		ch <- item
+	} else {
+		i2 := next_i.Add(1)
+		wg.Add(1)
+		getItem(client, ids, int(i2), next_i, wg, ch)
+	}
+}
+
 func getItems(client *hn.Client, ids []int, numStories int) []item {
 	ch := make(chan item)
 	var wg sync.WaitGroup
+	next_i := atomic.Int32{}
+	next_i.Store(int32(numStories - 1))
 
 	var stories []item
 
-	numStoriesToGet := int(float32(numStories) * concurrencyMultiplier)
-
-	for i := 0; i < numStoriesToGet; i++ {
-		id := ids[i]
-
+	for i := 0; i < numStories; i++ {
 		wg.Add(1)
-		go func(i, id int) {
-			defer wg.Done()
-
-			hnItem, err := client.GetItem(id)
-			if err != nil {
-				return
-			}
-			item := parseHNItem(hnItem, i)
-
-			if isStoryLink(item) {
-				ch <- item
-			}
-		}(i, id)
+		go getItem(client, ids, i, &next_i, &wg, ch)
 	}
 
 	go func() {
@@ -95,12 +102,7 @@ func getItems(client *hn.Client, ids []int, numStories int) []item {
 		return a.Index < b.Index
 	})
 
-	// return only `numStories` or less
-	if len(stories) <= numStories {
-		return stories
-	}
-
-	return stories[:numStories]
+	return stories
 }
 
 func isStoryLink(item item) bool {
