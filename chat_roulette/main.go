@@ -23,9 +23,9 @@ func main() {
 
 	switch *modeFlag {
 	case "server":
-		app = server.Server{}
+		app = server.New()
 	case "client":
-		app = client.Client{}
+		app = client.New()
 	default:
 		os.Exit(1)
 	}

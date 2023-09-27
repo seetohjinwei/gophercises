@@ -10,6 +10,10 @@ import (
 
 type Client struct{}
 
+func New() Client {
+	return Client{}
+}
+
 func (c Client) Run() {
 	conn, err := net.Dial("tcp", ":8080")
 	if err != nil {

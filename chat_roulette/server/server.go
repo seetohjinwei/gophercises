@@ -7,7 +7,39 @@ import (
 )
 
 type Server struct {
-	value string
+	partner chan io.ReadWriteCloser
+}
+
+func New() Server {
+	return Server{
+		partner: make(chan io.ReadWriteCloser),
+	}
+}
+
+func (s Server) cp(w io.Writer, r io.Reader, errc chan<- error) {
+	_, err := io.Copy(w, r)
+	errc <- err
+}
+
+func (s Server) chat(a, b io.ReadWriteCloser) {
+	errc := make(chan error, 1)
+	go s.cp(a, b, errc)
+	go s.cp(b, a, errc)
+
+	if err := <-errc; err != nil {
+		log.Fatal(err)
+	}
+
+	a.Close()
+	b.Close()
+}
+
+func (s Server) match(c io.ReadWriteCloser) {
+	select {
+	case s.partner <- c:
+	case p := <-s.partner:
+		s.chat(p, c)
+	}
 }
 
 func (s Server) Run() {
@@ -16,21 +48,11 @@ func (s Server) Run() {
 		log.Fatal(err)
 	}
 
-	var prevConn net.Conn = nil
-
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		if prevConn != nil {
-			go io.Copy(prevConn, conn)
-			go io.Copy(conn, prevConn)
-
-			prevConn = nil
-		} else {
-			prevConn = conn
-		}
+		go s.match(conn)
 	}
 }
