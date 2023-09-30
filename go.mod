@@ -1,6 +1,6 @@
 module github.com/seetohjinwei/gophercises
 
-go 1.19
+go 1.21
 
 require golang.org/x/exp v0.0.0-20221227203929-1b447090c38c
 
